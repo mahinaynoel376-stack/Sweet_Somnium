@@ -3,24 +3,27 @@ package sweetsomnium;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
+import java.awt.image.BufferedImage;
 
-/** A candy to pick up. Bobs gently, twinkles now and then, and pops when collected. */
+/** A candy (or pill) to pick up. Bobs gently, twinkles now and then, and pops when collected. */
 public class Collectible {
 
     private static final int POP_FRAMES = 30;
 
     private final int x;
     private final int y;
+    private final BufferedImage sprite;
     private final Rectangle hitbox;
     private final int phase; // so candies don't all bob in sync
     private boolean collected;
     private int popTimer;
     private int tick;
 
-    /** x, y = top-left of the 48x48 tile the candy sits in. */
-    public Collectible(int x, int y) {
+    /** x, y = top-left of the 48x48 tile the candy sits in. The sprite is centred in that tile. */
+    public Collectible(int x, int y, BufferedImage sprite) {
         this.x = x;
         this.y = y;
+        this.sprite = sprite;
         this.hitbox = new Rectangle(x + 12, y + 12, 24, 24); // the candy art is the middle of the tile
         this.phase = (x / 7 + y / 3) % 90;
     }
@@ -47,7 +50,7 @@ public class Collectible {
         int cy = y + 24;
         if (!collected) {
             int bob = (int) Math.round(Math.sin((tick + phase) * 0.08) * 3);
-            g.drawImage(Assets.CANDY, x, y + bob, null);
+            g.drawImage(sprite, x + (Level.TILE - sprite.getWidth()) / 2, y + (Level.TILE - sprite.getHeight()) / 2 + bob, null);
             int t = (tick + phase) % 100;
             if (t < 14) {
                 int size = t < 7 ? t / 2 + 1 : (14 - t) / 2 + 1;

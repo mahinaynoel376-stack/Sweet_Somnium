@@ -27,7 +27,28 @@ public final class Assets {
     public static final BufferedImage MARSHMALLOW     = load("marshmallow.png"); // the hero's sprite sheet
     public static final BufferedImage GUMMY           = load("gummy.png");       // 2 frames, 32x32 each
     public static final BufferedImage GUMMY_WORM      = load("gummy_worm.png");  // 2 frames, 32x32 each
-    // candy_spike.png is in the folder too; it's saved for the spike hazards in later levels.
+    public static final BufferedImage CANDY_SPIKE     = load("candy_spike.png");
+
+    // Level 2: Sour Turn
+    public static final BufferedImage SOUR_GROUND_TOP     = load("sour_ground_top.png");
+    public static final BufferedImage SOUR_GROUND_FILL    = load("sour_ground_fill.png");
+    public static final BufferedImage SOUR_BLOCK          = load("sour_block.png");
+    public static final BufferedImage SOUR_PLATFORM_SMALL = load("sour_platform_small.png");
+    public static final BufferedImage SOUR_PLATFORM_LONG  = load("sour_platform_long.png");
+    public static final BufferedImage SOUR_SKY            = load("sour_sky.png");
+    public static final BufferedImage SOUR_ENEMIES        = load("sour_enemies.png"); // gummy on row 1, worm on row 2
+    public static final BufferedImage CAPSULE             = load("capsule.png");
+
+    // Level 3: Withdrawal
+    public static final BufferedImage WITHDRAWAL_SKY            = load("withdrawal_sky.png");
+    public static final BufferedImage WITHDRAWAL_BACKDROP       = load("withdrawal_backdrop.png"); // the whole map, faces and all
+    public static final BufferedImage WITHDRAWAL_GROUND_TOP     = load("withdrawal_ground_top.png");
+    public static final BufferedImage WITHDRAWAL_GROUND_FILL    = load("withdrawal_ground_fill.png");
+    public static final BufferedImage WITHDRAWAL_BLOCK          = load("withdrawal_block.png");
+    public static final BufferedImage WITHDRAWAL_PLATFORM_SMALL = load("withdrawal_platform_small.png");
+    public static final BufferedImage WITHDRAWAL_PLATFORM_LONG  = load("withdrawal_platform_long.png");
+    public static final BufferedImage PILL                      = load("pill.png");
+    public static final BufferedImage MONSTER                   = load("monster.png");
 
     private Assets() { }
 

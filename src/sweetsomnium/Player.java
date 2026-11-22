@@ -50,8 +50,20 @@ public class Player {
     private int animTick;
     private int respawnBlink;
     private boolean hurt;
+    private Platform riding; // the platform we're standing on, so moving ones carry us
 
-    public Player(double x, double y) {
+    // This level's look of the frames (paler in later levels)
+    private final BufferedImage[] idle;
+    private final BufferedImage[] walk;
+    private final BufferedImage jump;
+    private final BufferedImage fall;
+
+    /** @param pallor 0 = the marshmallow as drawn; higher = paler and greyer */
+    public Player(double x, double y, float pallor) {
+        idle = pale(IDLE, pallor);
+        walk = pale(WALK, pallor);
+        jump = pale(new BufferedImage[] {JUMP}, pallor)[0];
+        fall = pale(new BufferedImage[] {FALL}, pallor)[0];
         respawn(x, y);
         respawnBlink = 0;
     }
@@ -65,6 +77,7 @@ public class Player {
         facingRight = true;
         coyoteTimer = 0;
         jumpBufferTimer = 0;
+        riding = null;
         respawnBlink = RESPAWN_BLINK_FRAMES;
         hurt = false;
     }
@@ -80,6 +93,18 @@ public class Player {
     }
 
     public void update(Input input, Level level) {
+        // Ride along with a moving platform (or drop when a crumbling one gives way)
+        if (onGround && riding != null) {
+            if (riding.isSolid()) {
+                x += riding.dx();
+                y = riding.top() - HEIGHT;
+                riding.standOn();
+            } else {
+                onGround = false;
+                riding = null;
+            }
+        }
+
         // Run
         int dir = (input.right() ? 1 : 0) - (input.left() ? 1 : 0);
         if (dir != 0) {
@@ -150,6 +175,7 @@ public class Player {
         double oldBottom = y + HEIGHT;
         y += vy;
         onGround = false;
+        riding = null;
         int left = tile(x);
         int right = tile(x + WIDTH - EPS);
 
@@ -165,6 +191,9 @@ public class Player {
             }
             // One-way platforms: only catch us if we were above them last frame
             for (Platform p : level.platforms()) {
+                if (!p.isSolid()) {
+                    continue;
+                }
                 boolean wasAbove = oldBottom <= p.top() + EPS;
                 boolean nowBelowTop = y + HEIGHT >= p.top();
                 boolean overlapsX = x + WIDTH > p.left() && x < p.right();
@@ -172,6 +201,7 @@ public class Player {
                     y = p.top() - HEIGHT;
                     vy = 0;
                     onGround = true;
+                    riding = p;
                     return;
                 }
             }
@@ -223,12 +253,12 @@ public class Player {
         if (hurt) {
             frame = HURT[(animTick / 4) % 2];
         } else if (!onGround) {
-            frame = vy < 0 ? JUMP : FALL;
+            frame = vy < 0 ? jump : fall;
         } else if (walkPhase > 0) {
-            frame = WALK[(int) walkPhase % WALK.length];
+            frame = walk[(int) walkPhase % walk.length];
             sideView = true;
         } else {
-            frame = IDLE[(animTick / 40) % 2];
+            frame = idle[(animTick / 40) % 2];
         }
 
         // Feet on the hitbox's bottom edge, centred
@@ -242,6 +272,47 @@ public class Player {
         } else {
             g.drawImage(frame, dx, dy, null);
         }
+    }
+
+    /** Draws him standing still with his feet at (cx, feetY); used by the ending screen. */
+    public void drawStanding(Graphics2D g, int cx, int feetY) {
+        BufferedImage frame = idle[0];
+        g.drawImage(frame, cx - frame.getWidth() / 2, feetY - frame.getHeight(), null);
+    }
+
+    /** Copies of the frames, washed towards a pale grey. */
+    private static BufferedImage[] pale(BufferedImage[] src, float amount) {
+        if (amount <= 0) {
+            return src;
+        }
+        BufferedImage[] out = new BufferedImage[src.length];
+        for (int i = 0; i < src.length; i++) {
+            BufferedImage f = src[i];
+            BufferedImage img = new BufferedImage(f.getWidth(), f.getHeight(), BufferedImage.TYPE_INT_ARGB);
+            for (int y = 0; y < f.getHeight(); y++) {
+                for (int x = 0; x < f.getWidth(); x++) {
+                    int p = f.getRGB(x, y);
+                    int a = p >>> 24;
+                    int r = (p >> 16) & 255;
+                    int g = (p >> 8) & 255;
+                    int b = p & 255;
+                    int grey = (int) (0.3 * r + 0.59 * g + 0.11 * b);
+                    r = pale(r, grey, amount);
+                    g = pale(g, grey, amount);
+                    b = pale(b, grey, amount);
+                    img.setRGB(x, y, (a << 24) | (r << 16) | (g << 8) | b);
+                }
+            }
+            out[i] = img;
+        }
+        return out;
+    }
+
+    /** Towards grey, then a little lighter. */
+    private static int pale(int channel, int grey, float amount) {
+        double c = channel + (grey - channel) * amount;
+        c += (215 - c) * amount * 0.25;
+        return (int) Math.max(0, Math.min(255, c));
     }
 
     private static BufferedImage[] frames(int[][] boxes) {

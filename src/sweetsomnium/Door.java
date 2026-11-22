@@ -19,14 +19,15 @@ public class Door {
     public static final int HEIGHT = 84;
 
     private static final Color OUTLINE = Color.BLACK;
-    private static final Color FRAME = new Color(0xF2D2F6);
-    private static final Color STRIPE = new Color(0xD77BBA);
-    private static final Color WOOD = new Color(0x97467D);
-    private static final Color WOOD_DARK = new Color(0x7A3565);
-    private static final Color LOCK = new Color(0xFFD86B);
-    private static final Color LOCK_DARK = new Color(0xC99A3A);
-    private static final Color GLOW_CENTER = new Color(0xFFFBE6);
-    private static final Color GLOW_EDGE = new Color(0xFFC6E6);
+
+    private final Color frame;
+    private final Color stripe;
+    private final Color wood;
+    private final Color woodDark;
+    private final Color lock;
+    private final Color lockDark;
+    private final Color glowCenter;
+    private final Color glowEdge;
 
     private final int x;
     private final int y;
@@ -36,8 +37,20 @@ public class Door {
     private int unlockTimer;
     private int tick;
 
-    /** Stands on top of the tile below (col, row). */
-    public Door(int col, int row) {
+    /**
+     * Stands on top of the tile below (col, row).
+     * @param saturation 1 = full candy colours, lower = greyer (the world fading)
+     */
+    public Door(int col, int row, float saturation) {
+        float fade = 1f - saturation;
+        frame = Theme.desaturate(new Color(0xF2D2F6), fade);
+        stripe = Theme.desaturate(new Color(0xD77BBA), fade);
+        wood = Theme.desaturate(new Color(0x97467D), fade);
+        woodDark = Theme.desaturate(new Color(0x7A3565), fade);
+        lock = Theme.desaturate(new Color(0xFFD86B), fade);
+        lockDark = Theme.desaturate(new Color(0xC99A3A), fade);
+        glowCenter = Theme.desaturate(new Color(0xFFFBE6), fade);
+        glowEdge = Theme.desaturate(new Color(0xFFC6E6), fade);
         x = col * Level.TILE + (Level.TILE - WIDTH) / 2;
         y = (row + 1) * Level.TILE - HEIGHT;
         outer = arch(x, y, WIDTH, HEIGHT);
@@ -69,11 +82,11 @@ public class Door {
 
     public void draw(Graphics2D g) {
         // Candy-striped frame
-        g.setColor(FRAME);
+        g.setColor(frame);
         g.fill(outer);
         Shape oldClip = g.getClip();
         g.clip(outer);
-        g.setColor(STRIPE);
+        g.setColor(stripe);
         g.setStroke(new BasicStroke(4));
         for (int i = -HEIGHT; i < WIDTH + HEIGHT; i += 11) {
             g.drawLine(x + i, y + HEIGHT, x + i + HEIGHT, y);
@@ -103,11 +116,11 @@ public class Door {
     }
 
     private void drawClosedDoor(Graphics2D g, int cx) {
-        g.setColor(WOOD);
+        g.setColor(wood);
         g.fill(inner);
         Shape oldClip = g.getClip();
         g.clip(inner);
-        g.setColor(WOOD_DARK);
+        g.setColor(woodDark);
         for (int px = x + 16; px < x + WIDTH - 8; px += 10) {
             g.fillRect(px, y, 1, HEIGHT);
         }
@@ -120,9 +133,9 @@ public class Door {
         g.drawArc(cx - 6, ly - 13, 12, 14, 0, 180);
         g.setStroke(new BasicStroke(1));
         g.fillRect(cx - 9, ly - 6, 19, 15);
-        g.setColor(LOCK);
+        g.setColor(lock);
         g.fillRect(cx - 8, ly - 5, 17, 13);
-        g.setColor(LOCK_DARK);
+        g.setColor(lockDark);
         g.fillRect(cx - 8, ly + 5, 17, 3);
         g.setColor(OUTLINE);
         g.fillRect(cx - 1, ly - 2, 3, 3);
@@ -136,14 +149,14 @@ public class Door {
                 new Point2D.Double(cx, box.getCenterY() + 6),
                 (float) (box.getWidth() * (0.85 + 0.15 * pulse)),
                 new float[] {0f, 1f},
-                new Color[] {GLOW_CENTER, GLOW_EDGE},
+                new Color[] {glowCenter, glowEdge},
                 MultipleGradientPaint.CycleMethod.NO_CYCLE));
         g.fill(inner);
 
         // The door itself, swung open (seen edge-on)
         g.setColor(OUTLINE);
         g.fillRect(x + 6, y + 22, 7, HEIGHT - 22);
-        g.setColor(WOOD);
+        g.setColor(wood);
         g.fillRect(x + 7, y + 23, 5, HEIGHT - 24);
 
         // Sparkles drifting up out of the doorway

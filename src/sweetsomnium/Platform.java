@@ -5,30 +5,124 @@ import java.awt.image.BufferedImage;
 
 /**
  * A thin striped candy platform. It's one-way: you can jump up through it
- * from below and land on top of it.
+ * from below and land on top of it. It can also glide back and forth,
+ * or crumble: shake when you stand on it, drop away, and come back later.
  */
 public class Platform {
 
     /** The striped bar sits this many pixels down inside its 48px-tall sprite. */
     private static final int BAR_OFFSET_Y = 33;
+    private static final int SHAKE_FRAMES = 30;   // how long you can stand on a crumbling one
+    private static final int RETURN_FRAMES = 150; // how long until it comes back
 
-    private final int x;
-    private final int y;
+    private enum State { STEADY, SHAKING, FALLING, GONE }
+
     private final BufferedImage sprite;
+    private final double startX;
+    private final double startY;
+    private final double rangeX;
+    private final double rangeY;
+    private final int period;   // frames for a full trip there and back; 0 = doesn't move
+    private double x;
+    private double y;
+    private double dx;          // how far it moved sideways last frame (to carry the player)
+    private int tick;
+    private final boolean crumbles;
+    private State state = State.STEADY;
+    private int stateTimer;
+    private double fallSpeed;
 
     /**
      * @param tileX      left edge, in tiles (can be fractional, e.g. 25.5)
      * @param topRow     the tile row line the platform's top surface sits on
      * @param widthTiles 1 (small sprite) or 2 (long sprite)
+     * @param moveX      how far it travels sideways, in tiles (0 = it doesn't)
+     * @param moveY      how far it travels down, in tiles (negative = up)
+     * @param period     frames for one full trip there and back
+     * @param crumbles   true = drops away shortly after you stand on it
      */
-    public Platform(double tileX, int topRow, int widthTiles) {
+    public Platform(double tileX, int topRow, int widthTiles, double moveX, double moveY, int period,
+                    boolean crumbles, Theme theme) {
+        this.crumbles = crumbles;
         sprite = switch (widthTiles) {
-            case 1 -> Assets.PLATFORM_SMALL;
-            case 2 -> Assets.PLATFORM_LONG;
+            case 1 -> theme.platformSmall;
+            case 2 -> theme.platformLong;
             default -> throw new IllegalArgumentException("Platforms are 1 or 2 tiles wide, not " + widthTiles);
         };
-        x = (int) Math.round(tileX * Level.TILE);
-        y = topRow * Level.TILE - BAR_OFFSET_Y;
+        startX = tileX * Level.TILE;
+        startY = topRow * Level.TILE - BAR_OFFSET_Y;
+        rangeX = moveX * Level.TILE;
+        rangeY = moveY * Level.TILE;
+        this.period = period;
+        x = startX;
+        y = startY;
+    }
+
+    public void update() {
+        if (crumbles) {
+            updateCrumble();
+            return;
+        }
+        if (period <= 0) {
+            return;
+        }
+        tick++;
+        // Eases in and out at each end of its path
+        double t = 0.5 - 0.5 * Math.cos(2 * Math.PI * tick / period);
+        double nx = startX + rangeX * t;
+        double ny = startY + rangeY * t;
+        dx = nx - x;
+        x = nx;
+        y = ny;
+    }
+
+    private void updateCrumble() {
+        tick++;
+        switch (state) {
+            case SHAKING -> {
+                if (--stateTimer <= 0) {
+                    state = State.FALLING;
+                    fallSpeed = 0;
+                }
+            }
+            case FALLING -> {
+                fallSpeed = Math.min(fallSpeed + 0.5, 12);
+                y += fallSpeed;
+                if (y > GamePanel.VIEW_H + 50) {
+                    state = State.GONE;
+                    stateTimer = RETURN_FRAMES;
+                }
+            }
+            case GONE -> {
+                if (--stateTimer <= 0) {
+                    y = startY;
+                    state = State.STEADY;
+                }
+            }
+            default -> { }
+        }
+    }
+
+    /** Called every frame the player stands on this platform. */
+    public void standOn() {
+        if (crumbles && state == State.STEADY) {
+            state = State.SHAKING;
+            stateTimer = SHAKE_FRAMES;
+        }
+    }
+
+    /** False while a crumbling platform is falling or gone. */
+    public boolean isSolid() {
+        return state == State.STEADY || state == State.SHAKING;
+    }
+
+    public boolean crumbles() {
+        return crumbles;
+    }
+
+    /** Where the bar is drawn when still: {left x, top y, width} (used to paint it out of level 3's backdrop). */
+    public int[] barArea() {
+        return new int[] {(int) startX, (int) (startY + BAR_OFFSET_Y), sprite.getWidth()};
     }
 
     /** Y of the surface you stand on. */
@@ -44,7 +138,15 @@ public class Platform {
         return x + sprite.getWidth() - 1;
     }
 
+    public double dx() {
+        return dx;
+    }
+
     public void draw(Graphics2D g) {
-        g.drawImage(sprite, x, y, null);
+        if (state == State.GONE) {
+            return;
+        }
+        int shake = state == State.SHAKING ? ((tick / 2) % 2 == 0 ? 1 : -1) : 0;
+        g.drawImage(sprite, (int) Math.round(x) + shake, (int) Math.round(y), null);
     }
 }

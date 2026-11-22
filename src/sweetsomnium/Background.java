@@ -3,24 +3,18 @@ package sweetsomnium;
 import java.awt.AlphaComposite;
 import java.awt.Color;
 import java.awt.Graphics2D;
-import java.awt.MultipleGradientPaint;
-import java.awt.RadialGradientPaint;
 import java.awt.RenderingHints;
-import java.awt.geom.Point2D;
 import java.awt.image.BufferedImage;
-import java.util.Map;
 
 /**
- * Everything behind the level: the banded polka-dot sky, two layers of clouds
+ * Everything behind the level: the banded sky, two layers of clouds
  * (with parallax) and the dark fade at the bottom of the pits.
  */
 public class Background {
 
     private static final int W = GamePanel.VIEW_W;
     private static final int H = GamePanel.VIEW_H;
-    private static final int DOT_SPACING = 48;
 
-    private static final double DOT_PARALLAX = 0.1;
     private static final double FAR_CLOUD_PARALLAX = 0.15;
     private static final double MAIN_CLOUD_PARALLAX = 0.5;
 
@@ -35,35 +29,33 @@ public class Background {
     // Small pale clouds far away, drifting slowly.
     private static final int[][] FAR_CLOUDS = {{120, 34}, {470, 150}, {790, 16}, {1110, 128}, {1380, 58}};
 
-    // A sleepy-happy face for the clouds (Candy Land's clouds smile).
-    private static final String[] CLOUD_FACE = {
-        "....kk....................kk....",
-        "...kwkk..................kwkk...",
-        "...kkkk..................kkkk...",
-        "...kkkk..................kkkk...",
-        "...kkkk..................kkkk...",
-        "....kk....................kk....",
-        "............k......k............",
-        "pppp.........kkkkkk.........pppp",
-        "pppp........................pppp",
-    };
-
     private final BufferedImage sky;
     private final BufferedImage mainCloud;
     private final BufferedImage farCloud;
     private final BufferedImage pitShade;
+    private final boolean clouds;
 
-    public Background() {
-        sky = buildSky();
-        mainCloud = withFace(Assets.CLOUD_MAUVE);
+    public Background(Theme theme) {
+        clouds = theme.bandsAndClouds;
+        sky = buildSky(theme.sky, theme.bandsAndClouds);
+        mainCloud = Assets.CLOUD_MAUVE;
         farCloud = scaled(Assets.CLOUD_PINK, 0.5);
-        pitShade = tinted(Assets.PIT_SHADE, new Color(0x0350A3));
+        pitShade = tinted(Assets.PIT_SHADE, theme.pitColor);
     }
 
     public void draw(Graphics2D g, double camX, int tick) {
-        int dotShift = (int) Math.floor(camX * DOT_PARALLAX) % DOT_SPACING;
-        g.drawImage(sky, -dotShift, 0, null);
+        g.drawImage(sky, 0, 0, null);
+        if (clouds) {
+            drawClouds(g, camX, tick);
+        }
 
+        // Fade into the dark at the very bottom (only shows through the pits)
+        for (int x = 0; x < W; x += pitShade.getWidth()) {
+            g.drawImage(pitShade, x, H - pitShade.getHeight(), null);
+        }
+    }
+
+    private void drawClouds(Graphics2D g, double camX, int tick) {
         // Far clouds wrap around as they drift left
         double span = W + farCloud.getWidth() + 200;
         for (int[] c : FAR_CLOUDS) {
@@ -79,22 +71,21 @@ public class Background {
                 g.drawImage(mainCloud, sx, sy, null);
             }
         }
-
-        // Fade into deep blue at the very bottom (only shows through the pits)
-        for (int x = 0; x < W; x += pitShade.getWidth()) {
-            g.drawImage(pitShade, x, H - pitShade.getHeight(), null);
-        }
     }
 
     // ---------------------------------------------------------------- pre-drawn layers
 
-    /** sky.png, tinted into the mockup's colour bands, with soft polka dots. One dot-period wider than the view so it can scroll. */
-    private static BufferedImage buildSky() {
-        int w = W + DOT_SPACING;
+    /** The level's sky image stretched to the screen; level 1's gets the mockup's colour bands. */
+    private static BufferedImage buildSky(BufferedImage skyImage, boolean bands) {
+        int w = W;
         BufferedImage img = new BufferedImage(w, H, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = img.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-        g.drawImage(Assets.SKY, 0, 0, w, H, null);
+        g.drawImage(skyImage, 0, 0, w, H, null);
+        if (!bands) {
+            g.dispose();
+            return img;
+        }
 
         g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.8f));
         for (int i = 0; i < BAND_COLORS.length; i++) {
@@ -105,41 +96,6 @@ public class Background {
         }
         g.setComposite(AlphaComposite.SrcOver);
 
-        // Soft dots in the middle bands
-        BufferedImage dot = softDot(15);
-        for (int i = 1; i <= 3; i++) {
-            int y0 = (int) Math.round(BAND_EDGES[i] * Level.TILE);
-            int y1 = (int) Math.round(BAND_EDGES[i + 1] * Level.TILE);
-            int shift = (i % 2) * DOT_SPACING / 2;
-            for (int y = y0 + DOT_SPACING / 2; y + 12 < y1; y += DOT_SPACING) {
-                for (int x = shift; x < w + DOT_SPACING; x += DOT_SPACING) {
-                    g.drawImage(dot, x - dot.getWidth() / 2, y - dot.getHeight() / 2, null);
-                }
-            }
-        }
-        g.dispose();
-        return img;
-    }
-
-    private static BufferedImage softDot(int radius) {
-        BufferedImage img = new BufferedImage(radius * 2, radius * 2, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = img.createGraphics();
-        g.setPaint(new RadialGradientPaint(new Point2D.Float(radius, radius), radius,
-                new float[] {0f, 0.55f, 1f},
-                new Color[] {new Color(255, 255, 255, 46), new Color(255, 255, 255, 30), new Color(255, 255, 255, 0)},
-                MultipleGradientPaint.CycleMethod.NO_CYCLE));
-        g.fillRect(0, 0, radius * 2, radius * 2);
-        g.dispose();
-        return img;
-    }
-
-    private static BufferedImage withFace(BufferedImage cloud) {
-        BufferedImage img = copy(cloud);
-        Graphics2D g = img.createGraphics();
-        PixelArt.draw(g, CLOUD_FACE, Map.of(
-                'k', new Color(0x4A1640),
-                'w', Color.WHITE,
-                'p', new Color(0xEE6FAE)), 176, 101, 1);
         g.dispose();
         return img;
     }
@@ -168,11 +124,4 @@ public class Background {
         return img;
     }
 
-    private static BufferedImage copy(BufferedImage src) {
-        BufferedImage img = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = img.createGraphics();
-        g.drawImage(src, 0, 0, null);
-        g.dispose();
-        return img;
-    }
 }

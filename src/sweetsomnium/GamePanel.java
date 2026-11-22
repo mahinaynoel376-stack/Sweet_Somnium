@@ -66,10 +66,10 @@ public class GamePanel extends JPanel implements Runnable {
     private static final Map<Character, Color> HEART_EMPTY = Map.of(
             'k', INK, 'p', new Color(0xB9A9C9), 'w', new Color(0xB9A9C9));
 
-    private enum State { TITLE, PLAYING, LEVEL_COMPLETE, GAME_OVER }
+    private enum State { TITLE, PLAYING, LEVEL_COMPLETE, GAME_OVER, ENDING }
 
     private final Input input = new Input();
-    private final Background background = new Background();
+    private Background background;
 
     // Double buffering between the loop thread and Swing
     private BufferedImage frontFrame = newFrame();
@@ -161,23 +161,28 @@ public class GamePanel extends JPanel implements Runnable {
             case TITLE -> updateTitle();
             case PLAYING -> updatePlaying();
             case LEVEL_COMPLETE -> {
-                level.update();
+                level.update(null);
                 if (stateTimer > 60 && input.consumeConfirm()) {
-                    loadLevel(1);
-                    setState(State.TITLE);
+                    startLevel(level.number() + 1);
                 }
             }
             case GAME_OVER -> {
-                level.update();
+                level.update(null);
                 if (stateTimer > 30 && input.consumeConfirm()) {
-                    startGame();
+                    startLevel(level.number()); // try this level again
+                }
+            }
+            case ENDING -> {
+                if (stateTimer > 300 && input.consumeConfirm()) {
+                    loadLevel(1);
+                    setState(State.TITLE);
                 }
             }
         }
     }
 
     private void updateTitle() {
-        level.update();
+        level.update(null);
         double maxCam = level.pixelWidth() - VIEW_W;
         camX = (0.5 - 0.5 * Math.cos(tick * 0.0025)) * maxCam; // slow pan back and forth
         boolean confirm = input.consumeConfirm();
@@ -188,15 +193,21 @@ public class GamePanel extends JPanel implements Runnable {
     }
 
     private void startGame() {
+        startLevel(1);
+    }
+
+    /** Every level starts with full lives. */
+    private void startLevel(int number) {
         lives = START_LIVES;
-        loadLevel(1);
+        loadLevel(number);
         setState(State.PLAYING);
         bannerTimer = BANNER_FRAMES;
     }
 
     private void loadLevel(int number) {
         level = Level.create(number);
-        player = new Player(level.spawnX(), level.spawnY());
+        background = new Background(level.theme());
+        player = new Player(level.spawnX(), level.spawnY(), level.theme().playerPallor);
         candiesCollected = 0;
         respawnTimer = 0;
         toastTimer = 0;
@@ -210,7 +221,7 @@ public class GamePanel extends JPanel implements Runnable {
     }
 
     private void updatePlaying() {
-        level.update();
+        level.update(respawnTimer > 0 ? null : player.bounds());
         if (bannerTimer > 0) {
             bannerTimer--;
         }
@@ -242,7 +253,7 @@ public class GamePanel extends JPanel implements Runnable {
         }
         if (body.intersects(door.bounds())) {
             if (!door.isLocked()) {
-                setState(State.LEVEL_COMPLETE);
+                setState(level.number() == Level.LAST_LEVEL ? State.ENDING : State.LEVEL_COMPLETE);
                 return;
             }
             if (toastTimer == 0) {
@@ -250,14 +261,10 @@ public class GamePanel extends JPanel implements Runnable {
             }
         }
 
-        if (!player.isInvulnerable()) {
-            for (Enemy e : level.enemies()) {
-                if (body.intersects(e.bounds())) {
-                    player.hurt();
-                    loseLife();
-                    return;
-                }
-            }
+        if (!player.isInvulnerable() && touchesDanger(body)) {
+            player.hurt();
+            loseLife();
+            return;
         }
 
         if (player.hasFallenOut(level)) {
@@ -265,6 +272,25 @@ public class GamePanel extends JPanel implements Runnable {
         }
 
         camX += (cameraTarget() - camX) * 0.1;
+    }
+
+    private boolean touchesDanger(Rectangle body) {
+        for (Enemy e : level.enemies()) {
+            if (body.intersects(e.bounds())) {
+                return true;
+            }
+        }
+        for (Spike s : level.spikes()) {
+            if (body.intersects(s.bounds())) {
+                return true;
+            }
+        }
+        for (Monster m : level.monsters()) {
+            if (body.intersects(m.bounds())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void loseLife() {
@@ -320,6 +346,7 @@ public class GamePanel extends JPanel implements Runnable {
                 drawLevelComplete(g);
             }
             case GAME_OVER -> drawGameOver(g);
+            case ENDING -> drawEnding(g);
         }
     }
 
@@ -340,7 +367,8 @@ public class GamePanel extends JPanel implements Runnable {
 
         // Candies + lives
         panel(h, 14, 12, 248, 46);
-        h.drawImage(Assets.CANDY, 12, 11, null);
+        BufferedImage icon = level.theme().collectible;
+        h.drawImage(icon, 12 + (48 - icon.getWidth()) / 2, 11 + (48 - icon.getHeight()) / 2, null);
         h.setFont(HUD_FONT);
         shadowText(h, candiesCollected + " / " + total, 58, 42);
         for (int i = 0; i < START_LIVES; i++) {
@@ -390,7 +418,13 @@ public class GamePanel extends JPanel implements Runnable {
         }
         int half = RESPAWN_FRAMES / 2;
         float a = respawnTimer > half ? (RESPAWN_FRAMES - respawnTimer) / (float) half : respawnTimer / (float) half;
-        g.setColor(new Color(255, 240, 248, (int) (255 * Math.min(1f, a))));
+        int alpha = (int) (255 * Math.min(1f, a));
+        Color fade = switch (level.number()) { // the fade gets darker as the world does
+            case 1 -> new Color(255, 240, 248, alpha);
+            case 2 -> new Color(190, 192, 204, alpha);
+            default -> new Color(0, 0, 0, alpha);
+        };
+        g.setColor(fade);
         g.fillRect(0, 0, VIEW_W, VIEW_H);
     }
 
@@ -417,9 +451,8 @@ public class GamePanel extends JPanel implements Runnable {
         }
         Graphics2D h = smooth(g);
         outlinedText(h, level.name() + " cleared!", BIG_FONT, VIEW_W / 2, 300, new Color(0xFFD1EC), INK, 9);
-        outlinedText(h, "Level 2 isn't built yet.", BODY_FONT, VIEW_W / 2, 380, SOFT_WHITE, INK, 6);
         if (stateTimer > 60 && (tick / 30) % 2 == 0) {
-            outlinedText(h, "Press ENTER to return to the title", BODY_FONT, VIEW_W / 2, 430, SOFT_WHITE, INK, 6);
+            outlinedText(h, "Press ENTER to continue", BODY_FONT, VIEW_W / 2, 400, SOFT_WHITE, INK, 6);
         }
         h.dispose();
     }
@@ -432,6 +465,31 @@ public class GamePanel extends JPanel implements Runnable {
         outlinedText(h, "GAME OVER", BIG_FONT, VIEW_W / 2, 320, SOFT_WHITE, INK, 9);
         if (stateTimer > 30 && (tick / 30) % 2 == 0) {
             outlinedText(h, "Press ENTER to try again", BODY_FONT, VIEW_W / 2, 400, SOFT_WHITE, INK, 6);
+        }
+        h.dispose();
+    }
+
+    /** After level 3: quiet, dark, and left for the player to read. */
+    private void drawEnding(Graphics2D g) {
+        float dark = Math.min(1f, stateTimer / 90f);
+        g.setColor(new Color(0, 0, 0, (int) (255 * dark)));
+        g.fillRect(0, 0, VIEW_W, VIEW_H);
+        if (stateTimer < 120) {
+            return;
+        }
+        float a = Math.min(1f, (stateTimer - 120) / 120f);
+        Graphics2D h = smooth(g);
+        h.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, a));
+        player.drawStanding(h, VIEW_W / 2, VIEW_H / 2 + 20);
+        h.setFont(BODY_FONT);
+        h.setColor(new Color(0xB8B0B4));
+        String line = "Sweet dreams.";
+        h.drawString(line, (VIEW_W - h.getFontMetrics().stringWidth(line)) / 2, VIEW_H / 2 + 90);
+        if (stateTimer > 300) {
+            h.setFont(HUD_FONT);
+            h.setColor(new Color(0x5A5458));
+            String hint = "Press ENTER";
+            h.drawString(hint, (VIEW_W - h.getFontMetrics().stringWidth(hint)) / 2, VIEW_H - 60);
         }
         h.dispose();
     }
