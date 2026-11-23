@@ -6,10 +6,16 @@ import java.io.BufferedOutputStream;
 import java.util.Random;
 
 /**
- * Composes and renders Sweet Somnium's music as WAV files (22050 Hz, 16-bit, mono).
+ * Composes and renders Sweet Somnium's music and sound effects as WAV files (22050 Hz, 16-bit, mono).
  *
  * Run from the project folder:   java tools/MusicGenerator.java
- * It writes into src/assets/music/. This tool is not part of the game; the game only plays the WAVs.
+ * It writes the music into src/assets/music/ and the sound effects into src/assets/sfx/.
+ * This tool is not part of the game; the game only plays the WAVs.
+ *
+ * Sound effects (one per level for each, from sweet to scary):
+ *   pickup1-3 - picking up a candy, a capsule, a pill
+ *   hurt1-3   - getting hit
+ *   fall1-3   - falling into a pit
  *
  * Every track is built from the same little melody (the "theme"), which changes as the world does:
  *   title     - the theme as a music-box lullaby
@@ -75,6 +81,194 @@ public class MusicGenerator {
         write(complete(), new File(dir, "complete.wav"), 0.80);
         write(gameOver(), new File(dir, "gameover.wav"), 0.78);
         System.out.println("Wrote 7 tracks to " + dir.getPath());
+
+        // Sound effects: one of each per level, getting darker from level 1 to level 3
+        File sfx = new File(args.length > 1 ? args[1] : "src/assets/sfx");
+        sfx.mkdirs();
+        write(pickupCandy(), new File(sfx, "pickup1.wav"), 0.85);
+        write(pickupCapsule(), new File(sfx, "pickup2.wav"), 0.85);
+        write(pickupPill(), new File(sfx, "pickup3.wav"), 0.85);
+        write(hurt1(), new File(sfx, "hurt1.wav"), 0.85);
+        write(hurt2(), new File(sfx, "hurt2.wav"), 0.92);
+        write(hurt3(), new File(sfx, "hurt3.wav"), 0.90);
+        write(fall1(), new File(sfx, "fall1.wav"), 0.47);
+        write(fall2(), new File(sfx, "fall2.wav"), 0.68);
+        write(fall3(), new File(sfx, "fall3.wav"), 0.85);
+        System.out.println("Wrote 9 sound effects to " + sfx.getPath());
+    }
+
+    // ------------------------------------------------------------------ sound effects
+
+    /** Level 1 candy: a sweet two-note music-box chime going up, with a sparkle. */
+    static Track pickupCandy() {
+        Track t = new Track(0.9, false, 0.25);
+        Inst box = Inst.musicBox(0.35, 0.3);
+        note(t, box, 0.00, 0.2, 88);            // E6
+        note(t, box, 0.07, 0.3, 95);            // B6
+        Inst blip = new Inst(PULSE, 0.12, 0.1);
+        blip.duty = 0.25;
+        blip.attack = 0.002;
+        blip.decay = 0.06;
+        blip.sustain = 0;
+        blip.release = 0.03;
+        glide(t, blip, 0, 0.08, 84, 96);         // a quick upward "bling"
+        note(t, Inst.musicBox(0.10, 0.5), 0.14, 0.2, 100);
+        return t;
+    }
+
+    /** Level 2 capsule: a plastic pop, then the same chime gone sour (an out-of-tune tritone). */
+    static Track pickupCapsule() {
+        Track t = new Track(1.0, false, 0.3);
+        Inst pop = new Inst(SINE, 0.30, 0.05);
+        pop.attack = 0.001;
+        pop.decay = 0.04;
+        pop.sustain = 0;
+        pop.release = 0.02;
+        glide(t, pop, 0, 0.05, 62, 81);
+        noiseHit(t, 0, 0.12, 0.01, 2, 0.1);      // the plastic click
+        Inst box = Inst.musicBox(0.30, 0.35);
+        box.detune = -30;
+        box.wowDepth = 15;
+        box.wowRate = 3;
+        note(t, box, 0.05, 0.2, 87);            // E flat 6
+        note(t, box, 0.12, 0.3, 93);            // A6: a tritone above, the "wrong" interval
+        return t;
+    }
+
+    /** Level 3 pill: pills rattling in a bottle, then a low, warped, dissonant chord. */
+    static Track pickupPill() {
+        Track t = new Track(1.8, false, 0.5);
+        Random random = new Random(3);
+        Inst ping = new Inst(SINE, 0.05, 0.2);
+        ping.attack = 0.001;
+        ping.decay = 0.02;
+        ping.sustain = 0;
+        ping.release = 0.01;
+        for (int i = 0; i < 7; i++) {
+            double at = i * 0.025 + random.nextDouble() * 0.02;
+            noiseHit(t, at, 0.10 * (1 - i / 9.0), 0.006, 2, 0.2);
+            note(t, ping, at, 0.02, 100 + random.nextInt(8));
+        }
+        Inst box = Inst.musicBox(0.32, 0.6);
+        box.detune = -45;
+        box.wowDepth = 30;
+        box.wowRate = 0.8;
+        note(t, box, 0.2, 1, 60);               // C4
+        note(t, box, 0.2, 1, 66);               // F#4: the tritone again, low and out of tune
+        Inst swell = Inst.pad(0.05, 0.6);
+        swell.attack = 0.5;
+        swell.release = 0.6;
+        note(t, swell, 0.2, 0.7, 73);           // C#5 and D5 rubbing together
+        note(t, swell, 0.2, 0.7, 74);
+        return t;
+    }
+
+    /** Level 1 hit: a cute "squish" that drops in pitch, with a soft puff. */
+    static Track hurt1() {
+        Track t = new Track(0.7, false, 0.2);
+        Inst squish = new Inst(SINE, 0.45, 0.1);
+        squish.attack = 0.003;
+        squish.decay = 0.3;
+        squish.sustain = 0.3;
+        squish.release = 0.1;
+        glide(t, squish, 0, 0.28, 86, 62);
+        Inst body = new Inst(TRIANGLE, 0.20, 0.1);
+        body.attack = 0.003;
+        body.decay = 0.3;
+        body.sustain = 0.3;
+        body.release = 0.1;
+        glide(t, body, 0, 0.28, 74, 50);
+        noiseHit(t, 0, 0.12, 0.03, 1, 0.1);
+        return t;
+    }
+
+    /** Level 2 hit: the same drop, but buzzy and detuned against itself, with a thump. */
+    static Track hurt2() {
+        Track t = new Track(0.8, false, 0.3);
+        Inst a = new Inst(SAW, 0.34, 0.15);
+        a.cutoff = 1800;
+        a.attack = 0.003;
+        a.decay = 0.3;
+        a.sustain = 0.3;
+        a.release = 0.12;
+        a.detune = -25;
+        Inst b = a.copy();
+        b.detune = 25;
+        glide(t, a, 0, 0.32, 84, 57);
+        glide(t, b, 0, 0.32, 84, 57);
+        kick(t, 0, 0.22, 140, 50, 0.1);
+        noiseHit(t, 0, 0.15, 0.04, 1, 0.1);
+        return t;
+    }
+
+    /** Level 3 hit: a heavy thud and crunch, a clashing music-box sting, and a groan sinking away. */
+    static Track hurt3() {
+        Track t = new Track(1.6, false, 0.55);
+        kick(t, 0, 0.70, 120, 32, 0.25);
+        noiseHit(t, 0, 0.35, 0.08, 0, 0.3);
+        Inst sting = Inst.musicBox(0.25, 0.7);
+        sting.detune = -40;
+        sting.wowDepth = 35;
+        sting.wowRate = 1.3;
+        note(t, sting, 0.02, 1, 72);            // C5, C#5 and F#5 all at once
+        note(t, sting, 0.02, 1, 73);
+        note(t, sting, 0.02, 1, 78);
+        Inst groan = new Inst(SAW, 0.18, 0.4);
+        groan.cutoff = 600;
+        groan.attack = 0.01;
+        groan.decay = 0.6;
+        groan.sustain = 0.2;
+        groan.release = 0.5;
+        glide(t, groan, 0, 0.9, 40, 28);
+        return t;
+    }
+
+    /** Level 1 fall: a cartoon slide whistle going down. */
+    static Track fall1() {
+        Track t = new Track(1.0, false, 0.2);
+        Inst whistle = new Inst(SINE, 0.35, 0.15);
+        whistle.attack = 0.02;
+        whistle.decay = 0.1;
+        whistle.sustain = 0.9;
+        whistle.release = 0.15;
+        whistle.vibrato = 0.25;
+        glide(t, whistle, 0, 0.75, 96, 72);
+        return t;
+    }
+
+    /** Level 2 fall: the whistle out of tune with itself, and wobbling. */
+    static Track fall2() {
+        Track t = new Track(1.1, false, 0.3);
+        Inst a = new Inst(TRIANGLE, 0.22, 0.2);
+        a.attack = 0.02;
+        a.decay = 0.1;
+        a.sustain = 0.9;
+        a.release = 0.2;
+        a.detune = -25;
+        a.wowDepth = 20;
+        a.wowRate = 4;
+        Inst b = a.copy();
+        b.detune = 25;
+        glide(t, a, 0, 0.8, 93, 66);
+        glide(t, b, 0, 0.8, 93, 66);
+        return t;
+    }
+
+    /** Level 3 fall: a hollow roar sinking into the dark, and a far-off thud. */
+    static Track fall3() {
+        Track t = new Track(1.8, false, 0.6);
+        Inst roar = new Inst(SAW, 0.22, 0.5);
+        roar.cutoff = 900;
+        roar.attack = 0.05;
+        roar.decay = 0.4;
+        roar.sustain = 0.7;
+        roar.release = 0.5;
+        Inst roar2 = roar.copy();
+        roar2.detune = 35;
+        glide(t, roar, 0, 1.0, 60, 30);
+        glide(t, roar2, 0, 1.0, 60, 30);
+        kick(t, 1.0, 0.35, 80, 30, 0.3);
+        return t;
     }
 
     // ------------------------------------------------------------------ the tracks
@@ -452,7 +646,12 @@ public class MusicGenerator {
 
     /** Renders one note into the track. */
     static void note(Track t, Inst in, double start, double dur, double midi) {
-        double baseHz = frequency(midi);
+        glide(t, in, start, dur, midi, midi);
+    }
+
+    /** Renders a note whose pitch slides from fromMidi to toMidi over its length (for sound effects). */
+    static void glide(Track t, Inst in, double start, double dur, double fromMidi, double toMidi) {
+        double baseHz = frequency(fromMidi);
         boolean box = in.wave == MUSIC_BOX;
         double ring = box ? Math.min(4.0, 1.6 * Math.pow(440 / baseHz, 0.3) * 3.2) : dur + in.release;
         int first = (int) Math.round(start * SR);
@@ -469,7 +668,8 @@ public class MusicGenerator {
             if (in.vibrato > 0 && time > 0.25) {
                 semis += in.vibrato * Math.min(1, (time - 0.25) * 3) * Math.sin(2 * Math.PI * 5.5 * time);
             }
-            double hz = baseHz * Math.pow(2, semis / 12.0);
+            double midiNow = fromMidi + (toMidi - fromMidi) * Math.min(1, time / Math.max(dur, 0.001));
+            double hz = frequency(midiNow) * Math.pow(2, semis / 12.0);
             phase += hz / SR;
             double p = phase - Math.floor(phase);
             double v;

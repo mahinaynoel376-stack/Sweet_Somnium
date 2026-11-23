@@ -43,7 +43,7 @@ final class MusicPlayer {
 
     MusicPlayer() {
         for (int i = 0; i < FILES.length; i++) {
-            clips[i] = load(FILES[i]);
+            clips[i] = loadClip("/assets/music/" + FILES[i] + ".wav");
         }
     }
 
@@ -111,7 +111,7 @@ final class MusicPlayer {
     }
 
     /** Sets a clip's loudness, 0 to 1. Java Sound measures it in decibels, so convert. */
-    private static void setVolume(Clip clip, float volume) {
+    static void setVolume(Clip clip, float volume) {
         if (!clip.isControlSupported(FloatControl.Type.MASTER_GAIN)) {
             return;
         }
@@ -121,11 +121,10 @@ final class MusicPlayer {
     }
 
     /** Loads one WAV into memory, or returns null (and the game stays quiet) if that isn't possible. */
-    private static Clip load(String name) {
-        String path = "/assets/music/" + name + ".wav";
+    static Clip loadClip(String path) {
         try (InputStream raw = MusicPlayer.class.getResourceAsStream(path)) {
             if (raw == null) {
-                System.err.println("Missing music " + path);
+                System.err.println("Missing sound " + path);
                 return null;
             }
             try (AudioInputStream audio = AudioSystem.getAudioInputStream(new BufferedInputStream(raw))) {
@@ -134,7 +133,7 @@ final class MusicPlayer {
                 return clip;
             }
         } catch (Exception e) { // no sound device, unsupported format, ...
-            System.err.println("Music disabled for " + name + ": " + e);
+            System.err.println("Sound disabled for " + path + ": " + e);
             return null;
         }
     }

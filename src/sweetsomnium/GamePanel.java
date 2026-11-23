@@ -19,6 +19,8 @@ import java.awt.font.TextLayout;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
+import java.util.Random;
+
 import javax.swing.JPanel;
 
 /**
@@ -69,6 +71,19 @@ public class GamePanel extends JPanel implements Runnable {
     private static final int TOAST_MIN_FRAMES = 60; // shown at least this long before the next one may cut in
     private static final int TOAST_FADE = 20;
 
+    // Death effects get stronger and darker level by level. Each array is looked up with [level number - 1].
+    private static final Color[][] BURST_COLORS = {
+        {Color.WHITE, new Color(0xFFD1EC), new Color(0xF6A8D2)},           // level 1: pink marshmallow fluff
+        {new Color(0xE8E6D8), new Color(0xC9CDB4), new Color(0xA6AD8E)},   // level 2: washed-out, sour
+        {new Color(0x5A0F14), new Color(0x1A0A0C), new Color(0x8C8A8E)},   // level 3: dark red, black and ash
+    };
+    private static final double[] BURST_GRAVITY = {0.35, 0.30, -0.06};    // level 3's bits drift up like smoke
+    private static final int[] BURST_COUNT = {36, 48, 64};
+    private static final Color[] FLASH_COLORS = {Color.WHITE, new Color(214, 222, 160), new Color(120, 0, 10)};
+    private static final int[] SHAKE_FRAMES = {12, 16, 26};
+    private static final int[] SHAKE_PIXELS = {4, 6, 10};
+    private static final int FLASH_FRAMES = 18;
+
     // Which screen the game is on
     private static final int STATE_TITLE = 0;
     private static final int STATE_PLAYING = 1;
@@ -78,6 +93,9 @@ public class GamePanel extends JPanel implements Runnable {
 
     private final Input input = new Input();
     private final MusicPlayer music = new MusicPlayer();
+    private final SoundEffects sfx = new SoundEffects();
+    private final Particles particles = new Particles();
+    private final Random shakeRandom = new Random(5);
     private Background background;
 
     // Double buffering between the loop thread and Swing
@@ -100,6 +118,13 @@ public class GamePanel extends JPanel implements Runnable {
     private final MessageQueue<String> toasts = new MessageQueue<>(); // messages waiting their turn
     private String toastText = "";   // the message on screen right now
     private int toastTimer;
+    private int shakeTimer;     // screen shake after a death
+    private int shakeFrames;
+    private int shakePixels;
+    private int shakeX;
+    private int shakeY;
+    private int flashTimer;     // colour flash after a hit
+    private Color flashColor = Color.WHITE;
 
     public GamePanel() {
         setPreferredSize(windowSize());
@@ -166,6 +191,7 @@ public class GamePanel extends JPanel implements Runnable {
         tick++;
         stateTimer++;
         updateToasts();
+        updateEffects();
         music.update();
         switch (state) {
             case STATE_TITLE:
@@ -231,6 +257,11 @@ public class GamePanel extends JPanel implements Runnable {
         respawnTimer = 0;
         toastTimer = 0;
         toasts.clear();
+        particles.clear();
+        shakeTimer = 0;
+        shakeX = 0;
+        shakeY = 0;
+        flashTimer = 0;
         camX = cameraTarget();
     }
 
@@ -288,6 +319,7 @@ public class GamePanel extends JPanel implements Runnable {
         for (CandyList.Node n = level.candies().first(); n != null; n = n.next) {
             if (n.candy.tryCollect(body)) {
                 candiesCollected++;
+                sfx.play(SoundEffects.PICKUP, level.number()); // candy, capsule or pill: sweeter to scarier
                 if (level.totalCandies() - candiesCollected == 1) {
                     toast("Only one candy left!");
                 }
@@ -309,11 +341,13 @@ public class GamePanel extends JPanel implements Runnable {
 
         if (!player.isInvulnerable() && touchesDanger(body)) {
             player.hurt();
+            deathEffects(true);
             loseLife();
             return;
         }
 
         if (player.hasFallenOut(level)) {
+            deathEffects(false);
             loseLife();
         }
 
@@ -337,6 +371,50 @@ public class GamePanel extends JPanel implements Runnable {
             }
         }
         return false;
+    }
+
+    /**
+     * Sound, screen shake, a colour flash and a burst of fluff when the player dies.
+     * Each level's version is stronger and darker than the last.
+     *
+     * @param hit true = touched an enemy, spike or monster; false = fell into a pit
+     */
+    private void deathEffects(boolean hit) {
+        int i = level.number() - 1;
+        if (hit) {
+            sfx.play(SoundEffects.HURT, level.number());
+            Rectangle b = player.bounds();
+            particles.burst(b.getCenterX(), b.getCenterY(), BURST_COUNT[i], BURST_COLORS[i], 3.5 + i, BURST_GRAVITY[i]);
+            flashColor = FLASH_COLORS[i];
+            flashTimer = FLASH_FRAMES;
+            shake(SHAKE_FRAMES[i], SHAKE_PIXELS[i]);
+        } else {
+            sfx.play(SoundEffects.FALL, level.number());
+            shake(SHAKE_FRAMES[i] / 2, SHAKE_PIXELS[i] / 2 + 1); // a smaller jolt: he's already off screen
+        }
+    }
+
+    private void shake(int frames, int pixels) {
+        shakeFrames = frames;
+        shakeTimer = frames;
+        shakePixels = pixels;
+    }
+
+    /** Runs every frame on every screen, so effects finish even after the game is over. */
+    private void updateEffects() {
+        particles.update();
+        if (flashTimer > 0) {
+            flashTimer--;
+        }
+        if (shakeTimer > 0) {
+            shakeTimer--;
+            int strength = (shakePixels * shakeTimer + shakeFrames - 1) / shakeFrames; // dies down over time
+            shakeX = shakeRandom.nextInt(2 * strength + 1) - strength;
+            shakeY = shakeRandom.nextInt(2 * strength + 1) - strength;
+        } else {
+            shakeX = 0;
+            shakeY = 0;
+        }
     }
 
     /** Pops the top heart off the stack. No hearts left means Game Over. */
@@ -401,6 +479,7 @@ public class GamePanel extends JPanel implements Runnable {
 
         boolean showPlayer = state == STATE_PLAYING || state == STATE_GAME_OVER;
         drawWorld(g, showPlayer);
+        drawFlash(g);
 
         switch (state) {
             case STATE_TITLE:
@@ -430,12 +509,22 @@ public class GamePanel extends JPanel implements Runnable {
     private void drawWorld(Graphics2D g, boolean showPlayer) {
         background.draw(g, camX, tick);
         Graphics2D w = (Graphics2D) g.create();
-        w.translate(-(int) Math.round(camX), 0);
+        w.translate(-(int) Math.round(camX) + shakeX, shakeY); // the sky stays still; the world shakes
         level.draw(w);
         if (showPlayer) {
             player.draw(w);
         }
+        particles.draw(w);
         w.dispose();
+    }
+
+    private void drawFlash(Graphics2D g) {
+        if (flashTimer <= 0) {
+            return;
+        }
+        int alpha = 150 * flashTimer / FLASH_FRAMES;
+        g.setColor(new Color(flashColor.getRed(), flashColor.getGreen(), flashColor.getBlue(), alpha));
+        g.fillRect(0, 0, VIEW_W, VIEW_H);
     }
 
     private void drawHud(Graphics2D g) {
