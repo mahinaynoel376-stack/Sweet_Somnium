@@ -19,8 +19,6 @@ import java.awt.font.TextLayout;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
-import java.util.Map;
-
 import javax.swing.JPanel;
 
 /**
@@ -61,10 +59,15 @@ public class GamePanel extends JPanel implements Runnable {
         "....kpk....",
         ".....k.....",
     };
-    private static final Map<Character, Color> HEART_FULL = Map.of(
-            'k', INK, 'p', new Color(0xEC5FA8), 'w', Color.WHITE);
-    private static final Map<Character, Color> HEART_EMPTY = Map.of(
-            'k', INK, 'p', new Color(0xB9A9C9), 'w', new Color(0xB9A9C9));
+    // Palettes are arrays indexed by the pattern character: HEART_FULL['p'] is the pink fill.
+    private static final Color[] HEART_FULL = PixelArt.palette("kpw",
+            INK, new Color(0xEC5FA8), Color.WHITE);
+    private static final Color[] HEART_EMPTY = PixelArt.palette("kpw",
+            INK, new Color(0xB9A9C9), new Color(0xB9A9C9));
+
+    private static final int TOAST_FRAMES = 150;    // how long one message stays up
+    private static final int TOAST_MIN_FRAMES = 60; // shown at least this long before the next one may cut in
+    private static final int TOAST_FADE = 20;
 
     private enum State { TITLE, PLAYING, LEVEL_COMPLETE, GAME_OVER, ENDING }
 
@@ -88,7 +91,8 @@ public class GamePanel extends JPanel implements Runnable {
     private double camX;
     private int respawnTimer;
     private int bannerTimer;
-    private String toastText = "";
+    private final MessageQueue<String> toasts = new MessageQueue<>(); // messages waiting their turn
+    private String toastText = "";   // the message on screen right now
     private int toastTimer;
 
     public GamePanel() {
@@ -154,9 +158,7 @@ public class GamePanel extends JPanel implements Runnable {
     private void update() {
         tick++;
         stateTimer++;
-        if (toastTimer > 0) {
-            toastTimer--;
-        }
+        updateToasts();
         switch (state) {
             case TITLE -> updateTitle();
             case PLAYING -> updatePlaying();
@@ -211,6 +213,7 @@ public class GamePanel extends JPanel implements Runnable {
         candiesCollected = 0;
         respawnTimer = 0;
         toastTimer = 0;
+        toasts.clear();
         camX = cameraTarget();
     }
 
@@ -243,6 +246,9 @@ public class GamePanel extends JPanel implements Runnable {
         for (Collectible c : level.collectibles()) {
             if (c.tryCollect(body)) {
                 candiesCollected++;
+                if (level.collectibles().size() - candiesCollected == 1) {
+                    toast("Only one candy left!");
+                }
             }
         }
 
@@ -256,9 +262,7 @@ public class GamePanel extends JPanel implements Runnable {
                 setState(level.number() == Level.LAST_LEVEL ? State.ENDING : State.LEVEL_COMPLETE);
                 return;
             }
-            if (toastTimer == 0) {
-                toast("Collect every candy to open the door");
-            }
+            toast("Collect every candy to open the door");
         }
 
         if (!player.isInvulnerable() && touchesDanger(body)) {
@@ -308,9 +312,31 @@ public class GamePanel extends JPanel implements Runnable {
         return Math.max(0, Math.min(target, level.pixelWidth() - VIEW_W));
     }
 
+    /**
+     * Queues a message. Messages are shown one at a time in the order they were queued;
+     * a message that is already on screen or already waiting is not queued twice.
+     */
     private void toast(String text) {
-        toastText = text;
-        toastTimer = 150;
+        boolean showing = toastTimer > 0 && toastText.equals(text);
+        if (!showing && !toasts.contains(text)) {
+            toasts.enqueue(text);
+        }
+    }
+
+    /** Counts down the current message and brings in the next one from the front of the queue. */
+    private void updateToasts() {
+        if (toastTimer > 0) {
+            toastTimer--;
+            boolean someoneWaiting = !toasts.isEmpty();
+            boolean shownLongEnough = TOAST_FRAMES - toastTimer >= TOAST_MIN_FRAMES;
+            if (someoneWaiting && shownLongEnough && toastTimer > TOAST_FADE) {
+                toastTimer = TOAST_FADE; // start fading out early so the queue keeps moving
+            }
+        }
+        if (toastTimer == 0 && !toasts.isEmpty()) {
+            toastText = toasts.dequeue();
+            toastTimer = TOAST_FRAMES;
+        }
     }
 
     // ---------------------------------------------------------------- render
@@ -402,7 +428,7 @@ public class GamePanel extends JPanel implements Runnable {
             return;
         }
         Graphics2D h = smooth(g);
-        float alpha = Math.min(1f, toastTimer / 20f);
+        float alpha = Math.min(1f, toastTimer / (float) TOAST_FADE);
         h.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha));
         h.setFont(BODY_FONT);
         FontMetrics fm = h.getFontMetrics();
