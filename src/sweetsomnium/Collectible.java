@@ -45,6 +45,15 @@ public class Collectible {
         return false;
     }
 
+    public boolean isCollected() {
+        return collected;
+    }
+
+    /** True once the candy has been picked up and its pop animation is over. */
+    public boolean isFinished() {
+        return collected && popTimer == 0;
+    }
+
     public void draw(Graphics2D g) {
         int cx = x + 24;
         int cy = y + 24;

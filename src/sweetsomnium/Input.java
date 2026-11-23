@@ -2,20 +2,22 @@ package sweetsomnium;
 
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Keyboard state. Swing writes it (key events), the game loop reads it.
  * "Held" keys are plain flags; one-shot presses (jump, confirm) are latched
  * so a quick tap between two frames is never lost.
+ *
+ * Two threads use this object, so the methods that touch the one-shot presses
+ * are {@code synchronized}: only one thread can be inside them at a time.
  */
 public class Input extends KeyAdapter {
 
     private volatile boolean left;
     private volatile boolean right;
     private volatile boolean jumpHeld;
-    private final AtomicBoolean jumpPressed = new AtomicBoolean();
-    private final AtomicBoolean confirmPressed = new AtomicBoolean();
+    private boolean jumpPressed;
+    private boolean confirmPressed;
 
     @Override
     public void keyPressed(KeyEvent e) {
@@ -27,22 +29,31 @@ public class Input extends KeyAdapter {
         handle(e.getKeyCode(), false);
     }
 
-    private void handle(int key, boolean down) {
+    private synchronized void handle(int key, boolean down) {
         switch (key) {
-            case KeyEvent.VK_LEFT, KeyEvent.VK_A -> left = down;
-            case KeyEvent.VK_RIGHT, KeyEvent.VK_D -> right = down;
-            case KeyEvent.VK_SPACE, KeyEvent.VK_UP, KeyEvent.VK_W -> {
+            case KeyEvent.VK_LEFT:
+            case KeyEvent.VK_A:
+                left = down;
+                break;
+            case KeyEvent.VK_RIGHT:
+            case KeyEvent.VK_D:
+                right = down;
+                break;
+            case KeyEvent.VK_SPACE:
+            case KeyEvent.VK_UP:
+            case KeyEvent.VK_W:
                 if (down && !jumpHeld) {
-                    jumpPressed.set(true); // holding the key (auto-repeat) doesn't re-trigger
+                    jumpPressed = true; // holding the key (auto-repeat) doesn't re-trigger
                 }
                 jumpHeld = down;
-            }
-            case KeyEvent.VK_ENTER -> {
+                break;
+            case KeyEvent.VK_ENTER:
                 if (down) {
-                    confirmPressed.set(true);
+                    confirmPressed = true;
                 }
-            }
-            default -> { }
+                break;
+            default:
+                break;
         }
     }
 
@@ -59,19 +70,23 @@ public class Input extends KeyAdapter {
     }
 
     /** True once per jump-key press. */
-    public boolean consumeJump() {
-        return jumpPressed.getAndSet(false);
+    public synchronized boolean consumeJump() {
+        boolean wasPressed = jumpPressed;
+        jumpPressed = false;
+        return wasPressed;
     }
 
     /** True once per Enter press. */
-    public boolean consumeConfirm() {
-        return confirmPressed.getAndSet(false);
+    public synchronized boolean consumeConfirm() {
+        boolean wasPressed = confirmPressed;
+        confirmPressed = false;
+        return wasPressed;
     }
 
     /** Forget queued presses, e.g. when switching screens. */
-    public void clearPresses() {
-        jumpPressed.set(false);
-        confirmPressed.set(false);
+    public synchronized void clearPresses() {
+        jumpPressed = false;
+        confirmPressed = false;
     }
 
     /** Called when the window loses focus, so no key gets stuck "down". */

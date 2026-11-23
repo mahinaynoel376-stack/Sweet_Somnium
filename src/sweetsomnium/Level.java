@@ -3,9 +3,6 @@ package sweetsomnium;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
 
 /**
  * One level: the tile map, platforms, candies, enemies, spikes and door.
@@ -41,23 +38,31 @@ public class Level {
     private final char[][] tiles;
     private final int cols;
     private final int rows;
-    private final List<Platform> platforms = new ArrayList<>();
-    private final List<Collectible> collectibles = new ArrayList<>();
-    private final List<Enemy> enemies = new ArrayList<>();
-    private final List<Spike> spikes = new ArrayList<>();
-    private final List<Monster> monsters = new ArrayList<>();
+    // Platforms, enemies, spikes and monsters never change after the level is built,
+    // so they are plain arrays sized to fit. Candies get picked up and removed, so they
+    // live in a linked list.
+    private final Platform[] platforms;
+    private final Enemy[] enemies;
+    private final Spike[] spikes;
+    private final Monster[] monsters;
+    private final CandyList candies = new CandyList();
+    private final int totalCandies;
     private Door door;
     private double spawnX;
     private double spawnY;
     private final BufferedImage scenery; // ground and blocks (or level 3's whole backdrop), pre-drawn once
 
     public static Level create(int number) {
-        return switch (number) {
-            case 1 -> candyLand();
-            case 2 -> sourTurn();
-            case 3 -> withdrawal();
-            default -> throw new IllegalArgumentException("Level " + number + " isn't built yet");
-        };
+        switch (number) {
+            case 1:
+                return candyLand();
+            case 2:
+                return sourTurn();
+            case 3:
+                return withdrawal();
+            default:
+                throw new IllegalArgumentException("Level " + number + " isn't built yet");
+        }
     }
 
     /** Level 1: Candy Land. Traced from docs/reference/level1_layout.jpg (49 x 16 tiles). */
@@ -185,59 +190,98 @@ public class Level {
         this.cols = map[0].length();
         this.tiles = new char[rows][cols];
 
-        boolean hasSpawn = false;
-        List<int[]> enemySpots = new ArrayList<>(); // {col, row, char}; built after the platforms exist
+        // Count things first, so each array can be made exactly the right size
         for (int r = 0; r < rows; r++) {
             if (map[r].length() != cols) {
                 throw new IllegalArgumentException("Level " + number + ", map row " + r + " is "
                         + map[r].length() + " characters long, expected " + cols);
             }
+        }
+        spikes = new Spike[countChars(map, "^v")];
+        enemies = new Enemy[countChars(map, "ghwtjk")];
+        monsters = new Monster[countChars(map, "m")];
+        int[][] enemySpots = new int[enemies.length][]; // {col, row, char}; built after the platforms exist
+        int[] monsterCols = new int[monsters.length];
+        int spikeCount = 0;
+        int enemyCount = 0;
+        int monsterCount = 0;
+
+        boolean hasSpawn = false;
+        for (int r = 0; r < rows; r++) {
             for (int c = 0; c < cols; c++) {
                 char ch = map[r].charAt(c);
                 tiles[r][c] = '.';
-                switch (ch) {
-                    case '#', 'B' -> tiles[r][c] = ch;
-                    case 'c' -> collectibles.add(new Collectible(c * TILE, r * TILE, theme.collectible));
-                    case 'P' -> {
-                        spawnX = c * TILE + (TILE - Player.WIDTH) / 2.0;
-                        spawnY = (r + 1) * TILE - Player.HEIGHT;
-                        hasSpawn = true;
-                    }
-                    case 'D' -> door = new Door(c, r, theme.doorSaturation);
-                    case '^', 'v' -> {
-                        spikes.add(new Spike(c, r, ch == 'v', theme.spike));
-                        tiles[r][c] = ch;
-                    }
-                    case 'g', 'h', 'w', 't', 'j', 'k', 'm' -> enemySpots.add(new int[] {c, r, ch});
-                    default -> { } // '.' and anything else: empty
+                if (ch == '#' || ch == 'B') {
+                    tiles[r][c] = ch;
+                } else if (ch == 'c') {
+                    candies.add(new Collectible(c * TILE, r * TILE, theme.collectible));
+                } else if (ch == 'P') {
+                    spawnX = c * TILE + (TILE - Player.WIDTH) / 2.0;
+                    spawnY = (r + 1) * TILE - Player.HEIGHT;
+                    hasSpawn = true;
+                } else if (ch == 'D') {
+                    door = new Door(c, r, theme.doorSaturation);
+                } else if (ch == '^' || ch == 'v') {
+                    spikes[spikeCount] = new Spike(c, r, ch == 'v', theme.spike);
+                    spikeCount++;
+                    tiles[r][c] = ch;
+                } else if (ch == 'm') {
+                    monsterCols[monsterCount] = c;
+                    monsterCount++;
+                } else if ("ghwtjk".indexOf(ch) >= 0) {
+                    enemySpots[enemyCount] = new int[] {c, r, ch};
+                    enemyCount++;
                 }
+                // '.' and anything else: empty
             }
         }
         if (!hasSpawn || door == null) {
             throw new IllegalArgumentException("Level " + number + " needs a 'P' (start) and a 'D' (door)");
         }
-        for (double[] p : platformData) {
+        totalCandies = candies.size();
+
+        platforms = new Platform[platformData.length];
+        for (int i = 0; i < platformData.length; i++) {
+            double[] p = platformData[i];
             boolean moves = p.length >= 6;
             boolean falls = p.length == 4 && p[3] == FALLS;
-            platforms.add(new Platform(p[0], (int) p[1], (int) p[2],
-                    moves ? p[3] : 0, moves ? p[4] : 0, moves ? (int) p[5] : 0, falls, theme));
+            platforms[i] = new Platform(p[0], (int) p[1], (int) p[2],
+                    moves ? p[3] : 0, moves ? p[4] : 0, moves ? (int) p[5] : 0, falls, theme);
         }
-        for (int[] e : enemySpots) {
-            if (e[2] == 'm') {
-                monsters.add(new Monster(e[0], this));
-                continue;
+        for (int i = 0; i < monsterCols.length; i++) {
+            monsters[i] = new Monster(monsterCols[i], this);
+        }
+        for (int i = 0; i < enemySpots.length; i++) {
+            int[] e = enemySpots[i];
+            int kind = (e[2] == 'w' || e[2] == 'k') ? Enemy.WORM : Enemy.GUMMY;
+            int behavior;
+            if (e[2] == 'h') {
+                behavior = Enemy.IDLE;
+            } else if (e[2] == 't') {
+                behavior = Enemy.TWITCHY;
+            } else if (e[2] == 'j') {
+                behavior = Enemy.HOPPER;
+            } else if (e[2] == 'k') {
+                behavior = Enemy.CHASER;
+            } else {
+                behavior = Enemy.PATROL;
             }
-            Enemy.Kind kind = (e[2] == 'w' || e[2] == 'k') ? Enemy.Kind.WORM : Enemy.Kind.GUMMY;
-            Enemy.Behavior behavior = switch (e[2]) {
-                case 'h' -> Enemy.Behavior.IDLE;
-                case 't' -> Enemy.Behavior.TWITCHY;
-                case 'j' -> Enemy.Behavior.HOPPER;
-                case 'k' -> Enemy.Behavior.CHASER;
-                default -> Enemy.Behavior.PATROL;
-            };
-            enemies.add(new Enemy(kind, behavior, e[0], e[1], this));
+            enemies[i] = new Enemy(kind, behavior, e[0], e[1], this);
         }
         scenery = drawScenery();
+    }
+
+    /** How many characters in the map are any of {@code wanted}. */
+    private static int countChars(String[] map, String wanted) {
+        int count = 0;
+        for (String row : map) {
+            for (int c = 0; c < row.length(); c++) {
+                if (wanted.indexOf(row.charAt(c)) >= 0) {
+                    count++;
+                }
+            }
+        }
+        return count;
     }
 
     // ---------------------------------------------------------------- queries
@@ -282,8 +326,8 @@ public class Level {
         return tiles[row][col] == '^' || tiles[row][col] == 'v';
     }
 
-    public List<Platform> platforms() {
-        return Collections.unmodifiableList(platforms);
+    public Platform[] platforms() {
+        return platforms;
     }
 
     /** True if there's ground or a platform top right at (px, feetY). */
@@ -330,20 +374,26 @@ public class Level {
         return (int) Math.floor(pixel / TILE);
     }
 
-    public List<Enemy> enemies() {
-        return Collections.unmodifiableList(enemies);
+    public Enemy[] enemies() {
+        return enemies;
     }
 
-    public List<Spike> spikes() {
-        return Collections.unmodifiableList(spikes);
+    public Spike[] spikes() {
+        return spikes;
     }
 
-    public List<Monster> monsters() {
-        return Collections.unmodifiableList(monsters);
+    public Monster[] monsters() {
+        return monsters;
     }
 
-    public List<Collectible> collectibles() {
-        return Collections.unmodifiableList(collectibles);
+    /** The candies still in the level. Picked-up ones are removed once they finish popping. */
+    public CandyList candies() {
+        return candies;
+    }
+
+    /** How many candies the level started with. */
+    public int totalCandies() {
+        return totalCandies;
     }
 
     public Door door() {
@@ -365,9 +415,10 @@ public class Level {
         for (Platform p : platforms) {
             p.update();
         }
-        for (Collectible c : collectibles) {
-            c.update();
+        for (CandyList.Node n = candies.first(); n != null; n = n.next) {
+            n.candy.update();
         }
+        candies.removeFinished();
         door.update();
         for (Enemy e : enemies) {
             e.update(this, player);
@@ -389,8 +440,8 @@ public class Level {
             s.draw(g);
         }
         door.draw(g);
-        for (Collectible c : collectibles) {
-            c.draw(g);
+        for (CandyList.Node n = candies.first(); n != null; n = n.next) {
+            n.candy.draw(g);
         }
         for (Enemy e : enemies) {
             e.draw(g);
@@ -411,11 +462,12 @@ public class Level {
         }
         for (int r = 0; r < rows; r++) {
             for (int c = 0; c < cols; c++) {
-                BufferedImage sprite = switch (tiles[r][c]) {
-                    case '#' -> (r == 0 || tiles[r - 1][c] != '#') ? theme.groundTop : theme.groundFill;
-                    case 'B' -> theme.block;
-                    default -> null;
-                };
+                BufferedImage sprite = null;
+                if (tiles[r][c] == '#') {
+                    sprite = (r == 0 || tiles[r - 1][c] != '#') ? theme.groundTop : theme.groundFill;
+                } else if (tiles[r][c] == 'B') {
+                    sprite = theme.block;
+                }
                 if (sprite != null) {
                     g.drawImage(sprite, c * TILE, r * TILE, null);
                 }

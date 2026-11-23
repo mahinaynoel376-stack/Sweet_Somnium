@@ -29,14 +29,18 @@ public class Monster {
     private static final int COOLDOWN_FRAMES = 30;
     private static final Color THREAD = new Color(0x2A1414);
 
-    private enum State { HANGING, DROPPING, WAITING, CLIMBING }
+    // What it's doing right now
+    private static final int HANGING = 0;
+    private static final int DROPPING = 1;
+    private static final int WAITING = 2;
+    private static final int CLIMBING = 3;
 
     private final BufferedImage sprite = Assets.MONSTER;
     private final double left;    // sprite x
     private final double lowestY; // sprite y when it has dropped all the way
     private double y = REST_Y;
     private double vy;
-    private State state = State.HANGING;
+    private int state = HANGING;
     private int timer;
     private int tick;
 
@@ -58,36 +62,38 @@ public class Monster {
     public void update(Rectangle player) {
         tick++;
         switch (state) {
-            case HANGING -> {
+            case HANGING:
                 if (timer > 0) {
                     timer--;
                 } else if (player != null && isBelow(player)) {
-                    state = State.DROPPING;
+                    state = DROPPING;
                     vy = 0;
                 }
-            }
-            case DROPPING -> {
+                break;
+            case DROPPING:
                 vy = Math.min(vy + DROP_ACCEL, DROP_MAX);
                 y += vy;
                 if (y >= lowestY) {
                     y = lowestY;
-                    state = State.WAITING;
+                    state = WAITING;
                     timer = WAIT_FRAMES;
                 }
-            }
-            case WAITING -> {
+                break;
+            case WAITING:
                 if (--timer <= 0) {
-                    state = State.CLIMBING;
+                    state = CLIMBING;
                 }
-            }
-            case CLIMBING -> {
+                break;
+            case CLIMBING:
                 y -= CLIMB_SPEED;
                 if (y <= REST_Y) {
                     y = REST_Y;
-                    state = State.HANGING;
+                    state = HANGING;
                     timer = COOLDOWN_FRAMES;
                 }
-            }
+                break;
+            default:
+                break;
         }
     }
 
@@ -98,7 +104,7 @@ public class Monster {
 
     /** A slow, uneasy swing on its thread. */
     private double sway() {
-        return state == State.HANGING ? Math.sin(tick * 0.03) * 4 : 0;
+        return state == HANGING ?Math.sin(tick * 0.03) * 4 : 0;
     }
 
     public Rectangle bounds() {

@@ -69,7 +69,12 @@ public class GamePanel extends JPanel implements Runnable {
     private static final int TOAST_MIN_FRAMES = 60; // shown at least this long before the next one may cut in
     private static final int TOAST_FADE = 20;
 
-    private enum State { TITLE, PLAYING, LEVEL_COMPLETE, GAME_OVER, ENDING }
+    // Which screen the game is on
+    private static final int STATE_TITLE = 0;
+    private static final int STATE_PLAYING = 1;
+    private static final int STATE_LEVEL_COMPLETE = 2;
+    private static final int STATE_GAME_OVER = 3;
+    private static final int STATE_ENDING = 4;
 
     private final Input input = new Input();
     private Background background;
@@ -81,12 +86,12 @@ public class GamePanel extends JPanel implements Runnable {
     private volatile boolean running;
 
     // Game state (only touched by the loop thread)
-    private State state = State.TITLE;
+    private int state = STATE_TITLE;
     private int stateTimer;
     private int tick;
     private Level level;
     private Player player;
-    private int lives;
+    private final HeartStack hearts = new HeartStack(START_LIVES); // the player's health
     private int candiesCollected;
     private double camX;
     private int respawnTimer;
@@ -160,26 +165,32 @@ public class GamePanel extends JPanel implements Runnable {
         stateTimer++;
         updateToasts();
         switch (state) {
-            case TITLE -> updateTitle();
-            case PLAYING -> updatePlaying();
-            case LEVEL_COMPLETE -> {
+            case STATE_TITLE:
+                updateTitle();
+                break;
+            case STATE_PLAYING:
+                updatePlaying();
+                break;
+            case STATE_LEVEL_COMPLETE:
                 level.update(null);
                 if (stateTimer > 60 && input.consumeConfirm()) {
                     startLevel(level.number() + 1);
                 }
-            }
-            case GAME_OVER -> {
+                break;
+            case STATE_GAME_OVER:
                 level.update(null);
                 if (stateTimer > 30 && input.consumeConfirm()) {
                     startLevel(level.number()); // try this level again
                 }
-            }
-            case ENDING -> {
+                break;
+            case STATE_ENDING:
                 if (stateTimer > 300 && input.consumeConfirm()) {
                     loadLevel(1);
-                    setState(State.TITLE);
+                    setState(STATE_TITLE);
                 }
-            }
+                break;
+            default:
+                break;
         }
     }
 
@@ -198,11 +209,14 @@ public class GamePanel extends JPanel implements Runnable {
         startLevel(1);
     }
 
-    /** Every level starts with full lives. */
+    /** Every level starts with full lives: the heart stack is emptied and 3 hearts are pushed back on. */
     private void startLevel(int number) {
-        lives = START_LIVES;
+        hearts.clear();
+        for (int heart = 1; heart <= START_LIVES; heart++) {
+            hearts.push(heart);
+        }
         loadLevel(number);
-        setState(State.PLAYING);
+        setState(STATE_PLAYING);
         bannerTimer = BANNER_FRAMES;
     }
 
@@ -217,7 +231,7 @@ public class GamePanel extends JPanel implements Runnable {
         camX = cameraTarget();
     }
 
-    private void setState(State newState) {
+    private void setState(int newState) {
         state = newState;
         stateTimer = 0;
         input.clearPresses();
@@ -243,23 +257,24 @@ public class GamePanel extends JPanel implements Runnable {
         player.update(input, level);
         Rectangle body = player.bounds();
 
-        for (Collectible c : level.collectibles()) {
-            if (c.tryCollect(body)) {
+        // Walk the candy linked list, node by node, and pick up any candy the player touches
+        for (CandyList.Node n = level.candies().first(); n != null; n = n.next) {
+            if (n.candy.tryCollect(body)) {
                 candiesCollected++;
-                if (level.collectibles().size() - candiesCollected == 1) {
+                if (level.totalCandies() - candiesCollected == 1) {
                     toast("Only one candy left!");
                 }
             }
         }
 
         Door door = level.door();
-        if (door.isLocked() && candiesCollected == level.collectibles().size()) {
+        if (door.isLocked() && level.candies().allCollected()) { // linear search for any candy left
             door.unlock();
             toast("The door is open!");
         }
         if (body.intersects(door.bounds())) {
             if (!door.isLocked()) {
-                setState(level.number() == Level.LAST_LEVEL ? State.ENDING : State.LEVEL_COMPLETE);
+                setState(level.number() == Level.LAST_LEVEL ? STATE_ENDING : STATE_LEVEL_COMPLETE);
                 return;
             }
             toast("Collect every candy to open the door");
@@ -297,10 +312,11 @@ public class GamePanel extends JPanel implements Runnable {
         return false;
     }
 
+    /** Pops the top heart off the stack. No hearts left means Game Over. */
     private void loseLife() {
-        lives--;
-        if (lives <= 0) {
-            setState(State.GAME_OVER);
+        hearts.pop();
+        if (hearts.isEmpty()) {
+            setState(STATE_GAME_OVER);
         } else {
             respawnTimer = RESPAWN_FRAMES;
         }
@@ -356,23 +372,31 @@ public class GamePanel extends JPanel implements Runnable {
     void render(Graphics2D g) {
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
 
-        boolean showPlayer = state == State.PLAYING || state == State.GAME_OVER;
+        boolean showPlayer = state == STATE_PLAYING || state == STATE_GAME_OVER;
         drawWorld(g, showPlayer);
 
         switch (state) {
-            case TITLE -> drawTitle(g);
-            case PLAYING -> {
+            case STATE_TITLE:
+                drawTitle(g);
+                break;
+            case STATE_PLAYING:
                 drawHud(g);
                 drawBanner(g);
                 drawToast(g);
                 drawRespawnFade(g);
-            }
-            case LEVEL_COMPLETE -> {
+                break;
+            case STATE_LEVEL_COMPLETE:
                 drawHud(g);
                 drawLevelComplete(g);
-            }
-            case GAME_OVER -> drawGameOver(g);
-            case ENDING -> drawEnding(g);
+                break;
+            case STATE_GAME_OVER:
+                drawGameOver(g);
+                break;
+            case STATE_ENDING:
+                drawEnding(g);
+                break;
+            default:
+                break;
         }
     }
 
@@ -389,7 +413,7 @@ public class GamePanel extends JPanel implements Runnable {
 
     private void drawHud(Graphics2D g) {
         Graphics2D h = smooth(g);
-        int total = level.collectibles().size();
+        int total = level.totalCandies();
 
         // Candies + lives
         panel(h, 14, 12, 248, 46);
@@ -397,8 +421,8 @@ public class GamePanel extends JPanel implements Runnable {
         h.drawImage(icon, 12 + (48 - icon.getWidth()) / 2, 11 + (48 - icon.getHeight()) / 2, null);
         h.setFont(HUD_FONT);
         shadowText(h, candiesCollected + " / " + total, 58, 42);
-        for (int i = 0; i < START_LIVES; i++) {
-            PixelArt.draw(h, HEART, i < lives ? HEART_FULL : HEART_EMPTY, 140 + i * 38, 25, 2);
+        for (int i = 0; i < START_LIVES; i++) { // hearts still on the stack are full, popped ones are grey
+            PixelArt.draw(h, HEART, i < hearts.size() ? HEART_FULL : HEART_EMPTY, 140 + i * 38, 25, 2);
         }
 
         // Level name
@@ -445,11 +469,14 @@ public class GamePanel extends JPanel implements Runnable {
         int half = RESPAWN_FRAMES / 2;
         float a = respawnTimer > half ? (RESPAWN_FRAMES - respawnTimer) / (float) half : respawnTimer / (float) half;
         int alpha = (int) (255 * Math.min(1f, a));
-        Color fade = switch (level.number()) { // the fade gets darker as the world does
-            case 1 -> new Color(255, 240, 248, alpha);
-            case 2 -> new Color(190, 192, 204, alpha);
-            default -> new Color(0, 0, 0, alpha);
-        };
+        Color fade; // the fade gets darker as the world does
+        if (level.number() == 1) {
+            fade = new Color(255, 240, 248, alpha);
+        } else if (level.number() == 2) {
+            fade = new Color(190, 192, 204, alpha);
+        } else {
+            fade = new Color(0, 0, 0, alpha);
+        }
         g.setColor(fade);
         g.fillRect(0, 0, VIEW_W, VIEW_H);
     }

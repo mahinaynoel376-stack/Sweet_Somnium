@@ -15,7 +15,11 @@ public class Platform {
     private static final int SHAKE_FRAMES = 30;   // how long you can stand on a crumbling one
     private static final int RETURN_FRAMES = 150; // how long until it comes back
 
-    private enum State { STEADY, SHAKING, FALLING, GONE }
+    // What a crumbling platform is doing right now
+    private static final int STEADY = 0;
+    private static final int SHAKING = 1;
+    private static final int FALLING = 2;
+    private static final int GONE = 3;
 
     private final BufferedImage sprite;
     private final double startX;
@@ -28,7 +32,7 @@ public class Platform {
     private double dx;          // how far it moved sideways last frame (to carry the player)
     private int tick;
     private final boolean crumbles;
-    private State state = State.STEADY;
+    private int state = STEADY;
     private int stateTimer;
     private double fallSpeed;
 
@@ -44,11 +48,13 @@ public class Platform {
     public Platform(double tileX, int topRow, int widthTiles, double moveX, double moveY, int period,
                     boolean crumbles, Theme theme) {
         this.crumbles = crumbles;
-        sprite = switch (widthTiles) {
-            case 1 -> theme.platformSmall;
-            case 2 -> theme.platformLong;
-            default -> throw new IllegalArgumentException("Platforms are 1 or 2 tiles wide, not " + widthTiles);
-        };
+        if (widthTiles == 1) {
+            sprite = theme.platformSmall;
+        } else if (widthTiles == 2) {
+            sprite = theme.platformLong;
+        } else {
+            throw new IllegalArgumentException("Platforms are 1 or 2 tiles wide, not " + widthTiles);
+        }
         startX = tileX * Level.TILE;
         startY = topRow * Level.TILE - BAR_OFFSET_Y;
         rangeX = moveX * Level.TILE;
@@ -79,41 +85,42 @@ public class Platform {
     private void updateCrumble() {
         tick++;
         switch (state) {
-            case SHAKING -> {
+            case SHAKING:
                 if (--stateTimer <= 0) {
-                    state = State.FALLING;
+                    state = FALLING;
                     fallSpeed = 0;
                 }
-            }
-            case FALLING -> {
+                break;
+            case FALLING:
                 fallSpeed = Math.min(fallSpeed + 0.5, 12);
                 y += fallSpeed;
                 if (y > GamePanel.VIEW_H + 50) {
-                    state = State.GONE;
+                    state = GONE;
                     stateTimer = RETURN_FRAMES;
                 }
-            }
-            case GONE -> {
+                break;
+            case GONE:
                 if (--stateTimer <= 0) {
                     y = startY;
-                    state = State.STEADY;
+                    state = STEADY;
                 }
-            }
-            default -> { }
+                break;
+            default:
+                break;
         }
     }
 
     /** Called every frame the player stands on this platform. */
     public void standOn() {
-        if (crumbles && state == State.STEADY) {
-            state = State.SHAKING;
+        if (crumbles && state == STEADY) {
+            state = SHAKING;
             stateTimer = SHAKE_FRAMES;
         }
     }
 
     /** False while a crumbling platform is falling or gone. */
     public boolean isSolid() {
-        return state == State.STEADY || state == State.SHAKING;
+        return state == STEADY || state == SHAKING;
     }
 
     public boolean crumbles() {
@@ -143,10 +150,10 @@ public class Platform {
     }
 
     public void draw(Graphics2D g) {
-        if (state == State.GONE) {
+        if (state == GONE) {
             return;
         }
-        int shake = state == State.SHAKING ? ((tick / 2) % 2 == 0 ? 1 : -1) : 0;
+        int shake = state == SHAKING ?((tick / 2) % 2 == 0 ? 1 : -1) : 0;
         g.drawImage(sprite, (int) Math.round(x) + shake, (int) Math.round(y), null);
     }
 }

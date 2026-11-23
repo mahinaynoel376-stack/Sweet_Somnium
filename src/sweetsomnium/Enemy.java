@@ -12,26 +12,24 @@ import java.util.Random;
  */
 public class Enemy {
 
-    public enum Kind { GUMMY, WORM }
+    // Kinds of body
+    public static final int GUMMY = 0;
+    public static final int WORM = 1;
 
-    public enum Behavior {
-        /** Level 1: walks slowly back and forth. */
-        PATROL(0.5),
-        /** Level 1: bounces on the spot (for spots too small to walk on). */
-        IDLE(0),
-        /** Level 2: quicker, stops and starts, sometimes turns for no reason. */
-        TWITCHY(1.1),
-        /** Level 2: walks, and hops when you get close. */
-        HOPPER(0.8),
-        /** Level 2: crawls slowly, then rushes at you when you're near. */
-        CHASER(0.5);
+    // Behaviours
+    /** Level 1: walks slowly back and forth. */
+    public static final int PATROL = 0;
+    /** Level 1: bounces on the spot (for spots too small to walk on). */
+    public static final int IDLE = 1;
+    /** Level 2: quicker, stops and starts, sometimes turns for no reason. */
+    public static final int TWITCHY = 2;
+    /** Level 2: walks, and hops when you get close. */
+    public static final int HOPPER = 3;
+    /** Level 2: crawls slowly, then rushes at you when you're near. */
+    public static final int CHASER = 4;
 
-        final double speed;
-
-        Behavior(double speed) {
-            this.speed = speed;
-        }
-    }
+    /** Walking speed of each behaviour, looked up by its number: SPEEDS[TWITCHY] is 1.1. */
+    private static final double[] SPEEDS = {0.5, 0, 1.1, 0.8, 0.5};
 
     private static final int FRAME = 32;           // sprite frames are 32x32
     private static final double CHASE_SPEED = 1.4;
@@ -41,7 +39,7 @@ public class Enemy {
     private static final double HOP_GRAVITY = 0.45;
     private static final double EPS = 0.001;
 
-    private final Behavior behavior;
+    private final int behavior;
     private final BufferedImage[] frames;
     private final boolean artFacesLeft;
     private final int frameTicks;
@@ -62,13 +60,13 @@ public class Enemy {
     private int tick;
 
     /** Creates the enemy standing on the nearest floor at or below tile (col, row). */
-    public Enemy(Kind kind, Behavior behavior, int col, int row, Level level) {
+    public Enemy(int kind, int behavior, int col, int row, Level level) {
         this.behavior = behavior;
-        this.baseSpeed = (kind == Kind.WORM && behavior == Behavior.PATROL) ? 0.35 : behavior.speed; // worms crawl slower
+        this.baseSpeed = (kind == WORM && behavior == PATROL) ? 0.35 : SPEEDS[behavior]; // worms crawl slower
         Theme theme = level.theme();
-        this.frames = kind == Kind.GUMMY ? theme.gummyFrames : theme.wormFrames;
+        this.frames = kind == GUMMY ? theme.gummyFrames : theme.wormFrames;
         this.artFacesLeft = false; // every enemy sprite so far looks to the right
-        this.frameTicks = behavior == Behavior.TWITCHY ? 7 : (kind == Kind.GUMMY ? 12 : 16);
+        this.frameTicks = behavior == TWITCHY ? 7 : (kind == GUMMY ? 12 : 16);
 
         // Size the hitbox from the art itself (a bit smaller, so near-misses are fair)
         int[] art = artBounds(frames);
@@ -80,7 +78,7 @@ public class Enemy {
         this.x = spot[0] - hitW / 2.0;
         this.floorY = spot[1];
         clampToFloor(level);
-        if (behavior == Behavior.IDLE) { // stand at the far right, leaving room to land on the left
+        if (behavior == IDLE) { // stand at the far right, leaving room to land on the left
             for (int i = 0; i < Level.TILE && level.hasFloorAt(x + hitW + 1, floorY); i++) {
                 x++;
             }
@@ -95,10 +93,9 @@ public class Enemy {
         double speed = baseSpeed;
 
         switch (behavior) {
-            case IDLE -> {
+            case IDLE:
                 return;
-            }
-            case TWITCHY -> {
+            case TWITCHY:
                 if (pauseTimer > 0) {
                     pauseTimer--;
                     return;
@@ -110,9 +107,11 @@ public class Enemy {
                     }
                     twitchTimer = 40 + random.nextInt(90);
                 }
-            }
-            case HOPPER -> updateHop(player);
-            case CHASER -> {
+                break;
+            case HOPPER:
+                updateHop(player);
+                break;
+            case CHASER:
                 if (player != null && isNear(player, CHASE_RANGE)) {
                     dir = player.getCenterX() > x + hitW / 2.0 ? 1 : -1;
                     speed = CHASE_SPEED;
@@ -120,8 +119,9 @@ public class Enemy {
                         return; // waits at the edge instead of turning away
                     }
                 }
-            }
-            default -> { }
+                break;
+            default:
+                break;
         }
 
         if (canStep(level, dir, speed)) {
@@ -180,7 +180,7 @@ public class Enemy {
 
     public void draw(Graphics2D g) {
         BufferedImage frame = frames[(tick / frameTicks) % 2];
-        boolean flip = behavior != Behavior.IDLE && ((dir > 0) == artFacesLeft);
+        boolean flip = behavior != IDLE &&((dir > 0) == artFacesLeft);
         double centre = x + hitW / 2.0;
         int dy = (int) Math.round(floorY - hop - FRAME); // art sits on the bottom of its frame
         if (flip) {
