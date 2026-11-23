@@ -77,6 +77,7 @@ public class GamePanel extends JPanel implements Runnable {
     private static final int STATE_ENDING = 4;
 
     private final Input input = new Input();
+    private final MusicPlayer music = new MusicPlayer();
     private Background background;
 
     // Double buffering between the loop thread and Swing
@@ -121,6 +122,7 @@ public class GamePanel extends JPanel implements Runnable {
             return;
         }
         running = true;
+        playMusicFor(state);
         Thread loopThread = new Thread(this, "game-loop");
         loopThread.setDaemon(true);
         loopThread.start();
@@ -164,6 +166,7 @@ public class GamePanel extends JPanel implements Runnable {
         tick++;
         stateTimer++;
         updateToasts();
+        music.update();
         switch (state) {
             case STATE_TITLE:
                 updateTitle();
@@ -235,6 +238,30 @@ public class GamePanel extends JPanel implements Runnable {
         state = newState;
         stateTimer = 0;
         input.clearPresses();
+        playMusicFor(newState);
+    }
+
+    /** Each screen has its own music; levels get their own track, and clearing or failing a level plays a jingle. */
+    private void playMusicFor(int screen) {
+        switch (screen) {
+            case STATE_TITLE:
+                music.play(MusicPlayer.TITLE);
+                break;
+            case STATE_PLAYING:
+                music.play(MusicPlayer.forLevel(level.number()));
+                break;
+            case STATE_LEVEL_COMPLETE:
+                music.play(MusicPlayer.COMPLETE);
+                break;
+            case STATE_GAME_OVER:
+                music.play(MusicPlayer.GAME_OVER);
+                break;
+            case STATE_ENDING:
+                music.play(MusicPlayer.ENDING);
+                break;
+            default:
+                break;
+        }
     }
 
     private void updatePlaying() {
